@@ -11,3 +11,5 @@ Pandas
 Seaborn
 
 !pip install pandas, seaborn 
+!pip install scikit-learn
+!pip install scipy

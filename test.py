@@ -4,6 +4,13 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import joblib
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 
 # --- Загрузка и подготовка данных ---
 try:
@@ -21,11 +28,41 @@ except Exception as e:
     messagebox.showerror("Ошибка загрузки", str(e))
     exit()
 
+# --- Обучение/загрузка модели ---
+df_model = df.dropna(subset=['ARRIVAL_DELAY'])
+df_model['AIRLINE'] = df_model['AIRLINE'].astype(str)
+df_model['ORIGIN_AIRPORT'] = df_model['ORIGIN_AIRPORT'].astype(str)
+df_model['DESTINATION_AIRPORT'] = df_model['DESTINATION_AIRPORT'].astype(str)
+
+features = ['MONTH', 'DAY', 'DAY_OF_WEEK', 'AIRLINE', 'ORIGIN_AIRPORT',
+            'DESTINATION_AIRPORT', 'SCHEDULED_DEPARTURE', 'DEPARTURE_DELAY',
+            'TAXI_OUT', 'DISTANCE', 'SCHEDULED_TIME']
+target = 'ARRIVAL_DELAY'
+
+X = df_model[features]
+y = df_model[target]
+
+try:
+    model = joblib.load('flight_delay_model.pkl')
+except:
+    preprocessor = ColumnTransformer([
+        ('num', 'passthrough', ['MONTH', 'DAY', 'DAY_OF_WEEK', 'SCHEDULED_DEPARTURE',
+                                'DEPARTURE_DELAY', 'TAXI_OUT', 'DISTANCE', 'SCHEDULED_TIME']),
+        ('cat', OneHotEncoder(handle_unknown='ignore'), ['AIRLINE', 'ORIGIN_AIRPORT', 'DESTINATION_AIRPORT'])
+    ])
+
+    model = Pipeline(steps=[
+        ('preprocessor', preprocessor),
+        ('regressor', LinearRegression())
+    ])
+    model.fit(X, y)
+    joblib.dump(model, 'flight_delay_model.pkl')
+
 # --- Настройка интерфейса ---
 root = tk.Tk()
 root.title("Анализ задержек рейсов")
 
-plot_types = ["lineplot", "barplot", "scatter", "boxplot", "histplot"]
+plot_types = ["lineplot", "barplot", "boxplot", "histplot"]
 agg_funcs = {"Среднее": "mean", "Максимум": "max", "Минимум": "min"}
 
 frame = ttk.Frame(root, padding=10)
@@ -41,10 +78,10 @@ def entry(row, default=""):
     return e
 
 label(0, "Начальная дата (YYYY-MM-DD):")
-start_entry = entry(0, "2020-01-01")
+start_entry = entry(0, "2015-01-01")
 
 label(1, "Конечная дата (YYYY-MM-DD):")
-end_entry = entry(1, "2020-12-31")
+end_entry = entry(1, "2015-12-31")
 
 label(2, "Тип графика:")
 plot_combo = ttk.Combobox(frame, values=plot_types)
@@ -58,7 +95,7 @@ x_combo.grid(row=3, column=1, sticky=tk.EW)
 
 label(4, "Столбец Y:")
 y_combo = ttk.Combobox(frame, values=list(df.columns))
-y_combo.set("DEP_DELAY")
+y_combo.set("DEPARTURE_DELAY")
 y_combo.grid(row=4, column=1, sticky=tk.EW)
 
 label(5, "Агрегация:")
@@ -105,5 +142,44 @@ def draw_plot():
         messagebox.showerror("Ошибка построения", str(err))
 
 ttk.Button(frame, text="Построить график", command=draw_plot).grid(row=6, column=0, columnspan=2, pady=10)
+
+# --- Раздел прогнозирования задержки ---
+ttk.Label(frame, text="Прогноз задержки").grid(row=7, column=0, columnspan=2)
+
+entries = {}
+inputs = {
+    "MONTH": 1, "DAY": 1, "DAY_OF_WEEK": 1, "AIRLINE": "AA",
+    "ORIGIN_AIRPORT": "ATL", "DESTINATION_AIRPORT": "LAX",
+    "SCHEDULED_DEPARTURE": 600, "DEPARTURE_DELAY": 0,
+    "TAXI_OUT": 10, "DISTANCE": 2000, "SCHEDULED_TIME": 300
+}
+
+row = 8
+for key, default in inputs.items():
+    ttk.Label(frame, text=key).grid(row=row, column=0)
+    entry = ttk.Entry(frame)
+    entry.insert(0, str(default))
+    entry.grid(row=row, column=1)
+    entries[key] = entry
+    row += 1
+
+result_label = ttk.Label(frame, text="")
+result_label.grid(row=row, column=0, columnspan=2, pady=5)
+
+def predict_delay():
+    try:
+        input_data = {k: entries[k].get() for k in entries}
+        for k in ['MONTH', 'DAY', 'DAY_OF_WEEK', 'SCHEDULED_DEPARTURE',
+                  'DEPARTURE_DELAY', 'TAXI_OUT', 'DISTANCE', 'SCHEDULED_TIME']:
+            input_data[k] = int(input_data[k])
+
+        df_input = pd.DataFrame([input_data])
+        prediction = model.predict(df_input)[0]
+        result_label.config(text=f"Прогнозируемая задержка прибытия: {prediction:.1f} мин.")
+    except Exception as e:
+        result_label.config(text="Ошибка прогноза")
+        print(e)
+
+ttk.Button(frame, text="Предсказать задержку", command=predict_delay).grid(row=row + 1, column=0, columnspan=2)
 
 root.mainloop()
