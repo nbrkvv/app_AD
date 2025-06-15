@@ -1,34 +1,26 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-import joblib
-import numpy as np
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
+import joblib
 
-# --- Загрузка и подготовка данных ---
-try:
-    df = pd.read_csv("flights.csv", low_memory=False)
-    df.columns = df.columns.str.strip()
+# === Загрузка и предобработка ===
+df = pd.read_csv("flights.csv", low_memory=False)
+df.columns = df.columns.str.strip()
 
-    # Объединяем YEAR, MONTH, DAY или DAY_OF_MONTH в дату
-    if {"YEAR", "MONTH", "DAY"}.issubset(df.columns):
-        df["FL_DATE"] = pd.to_datetime(df[["YEAR", "MONTH", "DAY"]])
-    elif {"YEAR", "MONTH", "DAY_OF_MONTH"}.issubset(df.columns):
-        df["FL_DATE"] = pd.to_datetime(df[["YEAR", "MONTH", "DAY_OF_MONTH"]])
-    else:
-        raise ValueError("Не найдены подходящие колонки: YEAR, MONTH, DAY или DAY_OF_MONTH")
-except Exception as e:
-    messagebox.showerror("Ошибка загрузки", str(e))
-    exit()
+if {"YEAR", "MONTH", "DAY_OF_MONTH"}.issubset(df.columns):
+    df["FL_DATE"] = pd.to_datetime(df[["YEAR", "MONTH", "DAY_OF_MONTH"]])
+else:
+    df["FL_DATE"] = pd.to_datetime(df[["YEAR", "MONTH", "DAY"]])
 
-# --- Обучение/загрузка модели ---
+# === Модель по твоему коду ===
 df_model = df.dropna(subset=['ARRIVAL_DELAY'])
 df_model['AIRLINE'] = df_model['AIRLINE'].astype(str)
 df_model['ORIGIN_AIRPORT'] = df_model['ORIGIN_AIRPORT'].astype(str)
@@ -41,77 +33,89 @@ target = 'ARRIVAL_DELAY'
 
 X = df_model[features]
 y = df_model[target]
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
 try:
     model = joblib.load('flight_delay_model.pkl')
 except:
-    preprocessor = ColumnTransformer([
-        ('num', 'passthrough', ['MONTH', 'DAY', 'DAY_OF_WEEK', 'SCHEDULED_DEPARTURE',
-                                'DEPARTURE_DELAY', 'TAXI_OUT', 'DISTANCE', 'SCHEDULED_TIME']),
-        ('cat', OneHotEncoder(handle_unknown='ignore'), ['AIRLINE', 'ORIGIN_AIRPORT', 'DESTINATION_AIRPORT'])
-    ])
-
-    model = Pipeline(steps=[
-        ('preprocessor', preprocessor),
-        ('regressor', LinearRegression())
-    ])
-    model.fit(X, y)
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', 'passthrough', ['MONTH', 'DAY', 'DAY_OF_WEEK', 'SCHEDULED_DEPARTURE',
+                                    'DEPARTURE_DELAY', 'TAXI_OUT', 'DISTANCE', 'SCHEDULED_TIME']),
+            ('cat', OneHotEncoder(handle_unknown='ignore'), ['AIRLINE', 'ORIGIN_AIRPORT', 'DESTINATION_AIRPORT'])
+        ])
+    model = Pipeline(steps=[('preprocessor', preprocessor),
+                            ('regressor', LinearRegression())])
+    model.fit(X_train, y_train)
     joblib.dump(model, 'flight_delay_model.pkl')
 
-# --- Настройка интерфейса ---
+# === Интерфейс ===
 root = tk.Tk()
-root.title("Анализ задержек рейсов")
+root.title("Flight Dashboard")
+root.geometry("1600x900")
 
+# Верхняя панель делится на левую (графики) и правую (управление)
+main_frame = tk.Frame(root)
+main_frame.pack(fill=tk.BOTH, expand=True)
+
+left_frame = tk.Frame(main_frame)
+left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+canvas_frame = tk.Frame(left_frame)
+canvas_frame.pack(fill=tk.BOTH, expand=True)
+
+graph_widgets = []  # Хранение всех нарисованных графиков
+
+right_frame = tk.Frame(main_frame, padx=20)
+right_frame.pack(side=tk.RIGHT, fill=tk.Y)
+
+# ==== Левая панель: графики ====
 plot_types = ["lineplot", "barplot", "boxplot", "histplot"]
 agg_funcs = {"Среднее": "mean", "Максимум": "max", "Минимум": "min"}
 
-frame = ttk.Frame(root, padding=10)
-frame.pack(fill=tk.BOTH, expand=True)
+top_controls = tk.Frame(right_frame)
+top_controls.pack(pady=10)
 
-def label(row, text):
-    ttk.Label(frame, text=text).grid(row=row, column=0, sticky=tk.W)
+ttk.Label(top_controls, text="Начало:").grid(row=0, column=0)
+start_entry = ttk.Entry(top_controls)
+start_entry.insert(0, "2015-01-01")
+start_entry.grid(row=0, column=1)
 
-def entry(row, default=""):
-    e = ttk.Entry(frame)
-    e.insert(0, default)
-    e.grid(row=row, column=1, sticky=tk.EW)
-    return e
+ttk.Label(top_controls, text="Конец:").grid(row=1, column=0)
+end_entry = ttk.Entry(top_controls)
+end_entry.insert(0, "2015-12-31")
+end_entry.grid(row=1, column=1)
 
-label(0, "Начальная дата (YYYY-MM-DD):")
-start_entry = entry(0, "2015-01-01")
-
-label(1, "Конечная дата (YYYY-MM-DD):")
-end_entry = entry(1, "2015-12-31")
-
-label(2, "Тип графика:")
-plot_combo = ttk.Combobox(frame, values=plot_types)
+ttk.Label(top_controls, text="Тип графика:").grid(row=2, column=0)
+plot_combo = ttk.Combobox(top_controls, values=plot_types)
 plot_combo.set("lineplot")
-plot_combo.grid(row=2, column=1, sticky=tk.EW)
+plot_combo.grid(row=2, column=1)
 
-label(3, "Столбец X:")
-x_combo = ttk.Combobox(frame, values=list(df.columns))
+ttk.Label(top_controls, text="X ось:").grid(row=3, column=0)
+x_combo = ttk.Combobox(top_controls, values=list(df.columns))
 x_combo.set("FL_DATE")
-x_combo.grid(row=3, column=1, sticky=tk.EW)
+x_combo.grid(row=3, column=1)
 
-label(4, "Столбец Y:")
-y_combo = ttk.Combobox(frame, values=list(df.columns))
+ttk.Label(top_controls, text="Y ось:").grid(row=4, column=0)
+y_combo = ttk.Combobox(top_controls, values=list(df.columns))
 y_combo.set("DEPARTURE_DELAY")
-y_combo.grid(row=4, column=1, sticky=tk.EW)
+y_combo.grid(row=4, column=1)
 
-label(5, "Агрегация:")
-agg_combo = ttk.Combobox(frame, values=list(agg_funcs.keys()))
+ttk.Label(top_controls, text="Агрегация:").grid(row=5, column=0)
+agg_combo = ttk.Combobox(top_controls, values=list(agg_funcs.keys()))
 agg_combo.set("Среднее")
-agg_combo.grid(row=5, column=1, sticky=tk.EW)
+agg_combo.grid(row=5, column=1)
 
-# Контейнер для графиков с увеличенной рабочей областью
-graph_container = tk.Canvas(root, height=800, width=1200)
-graph_container.pack(fill=tk.BOTH, expand=True)
+canvas_frame = tk.Frame(left_frame)
+canvas_frame.pack(fill=tk.BOTH, expand=True)
 
-graphs_frame = ttk.Frame(graph_container)
-graph_container.create_window((0, 0), window=graphs_frame, anchor="nw")
+# Хранилище для графиков
+graph_widgets = []
 
-# Счётчик графиков
-graph_counter = {"count": 0}  # обёртка для изменения внутри функции
+def clear_graphs():
+    for widget in graph_widgets:
+        widget.destroy()
+    graph_widgets.clear()
 
 def draw_plot():
     try:
@@ -133,66 +137,80 @@ def draw_plot():
         if x == "FL_DATE":
             data = data.groupby("FL_DATE")[y].agg(agg).reset_index()
 
-        fig, ax = plt.subplots(figsize=(5, 3))
+        # ✅ создаём новый график и размещаем в сетке
+        fig, ax = plt.subplots(figsize=(5.5, 3.5))
         if plot in ["lineplot", "barplot", "scatter"]:
             getattr(sns, plot)(data=data, x=x, y=y, ax=ax)
         else:
             getattr(sns, plot)(data=data, x=y, ax=ax)
         ax.set_title(f"{plot} по {x} и {y}")
 
-        canvas = FigureCanvasTkAgg(fig, master=graphs_frame)
-        canvas_widget = canvas.get_tk_widget()
+        canvas = FigureCanvasTkAgg(fig, master=canvas_frame)
+        widget = canvas.get_tk_widget()
 
-        # Расчёт позиции (по 2 графика в строку)
-        row = graph_counter["count"] // 2
-        col = graph_counter["count"] % 2
-        canvas_widget.grid(row=row, column=col, padx=10, pady=10)
+        # размещаем по 2 в строку
+        row = len(graph_widgets) // 2
+        col = len(graph_widgets) % 2
+        widget.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
 
         canvas.draw()
-        graph_counter["count"] += 1
+        graph_widgets.append(widget)
 
     except Exception as e:
         messagebox.showerror("Ошибка построения", str(e))
 
-ttk.Button(frame, text="Построить график", command=draw_plot).grid(row=6, column=0, columnspan=2, pady=10)
 
-# --- Раздел прогнозирования задержки ---
-ttk.Label(frame, text="Прогноз задержки").grid(row=7, column=0, columnspan=2)
+ttk.Button(right_frame, text="Построить график", command=draw_plot).pack(pady=5)
+ttk.Button(right_frame, text="Очистить все графики", command=clear_graphs).pack(pady=5)
+
+
+# --- Прогноз задержки (с вводом вручную, справа) ---
+ttk.Label(right_frame, text="--- Прогноз задержки ---", font=("Arial", 11, "bold")).pack(pady=(30, 5))
+
+# Контейнер с полями ввода
+predict_frame = ttk.Frame(right_frame)
+predict_frame.pack()
 
 entries = {}
-inputs = {
-    "MONTH": 1, "DAY": 1, "DAY_OF_WEEK": 1, "AIRLINE": "AA",
-    "ORIGIN_AIRPORT": "ATL", "DESTINATION_AIRPORT": "LAX",
-    "SCHEDULED_DEPARTURE": 600, "DEPARTURE_DELAY": 0,
-    "TAXI_OUT": 10, "DISTANCE": 2000, "SCHEDULED_TIME": 300
+
+default_values = {
+    'MONTH': 6,
+    'DAY': 15,
+    'DAY_OF_WEEK': 6,
+    'AIRLINE': 'AA',
+    'ORIGIN_AIRPORT': 'ATL',
+    'DESTINATION_AIRPORT': 'LAX',
+    'SCHEDULED_DEPARTURE': 900,
+    'DEPARTURE_DELAY': 5,
+    'TAXI_OUT': 12,
+    'DISTANCE': 2200,
+    'SCHEDULED_TIME': 300
 }
 
-row = 8
-for key, default in inputs.items():
-    ttk.Label(frame, text=key).grid(row=row, column=0)
-    entry = ttk.Entry(frame)
-    entry.insert(0, str(default))
-    entry.grid(row=row, column=1)
-    entries[key] = entry
-    row += 1
+for i, col in enumerate(features):
+    ttk.Label(predict_frame, text=col).grid(row=i, column=0, sticky=tk.W)
+    e = ttk.Entry(predict_frame)
+    e.insert(0, str(default_values[col]))
+    e.grid(row=i, column=1)
+    entries[col] = e
 
-result_label = ttk.Label(frame, text="")
-result_label.grid(row=row, column=0, columnspan=2, pady=5)
+result_label = ttk.Label(right_frame, text="", font=("Arial", 10, "bold"))
+result_label.pack(pady=10)
 
-def predict_delay():
+def predict_manual():
     try:
-        input_data = {k: entries[k].get() for k in entries}
-        for k in ['MONTH', 'DAY', 'DAY_OF_WEEK', 'SCHEDULED_DEPARTURE',
-                  'DEPARTURE_DELAY', 'TAXI_OUT', 'DISTANCE', 'SCHEDULED_TIME']:
-            input_data[k] = int(input_data[k])
-
-        df_input = pd.DataFrame([input_data])
+        row = []
+        for col in features:
+            val = entries[col].get()
+            val = int(val) if col not in ['AIRLINE', 'ORIGIN_AIRPORT', 'DESTINATION_AIRPORT'] else str(val)
+            row.append(val)
+        df_input = pd.DataFrame([row], columns=features)
         prediction = model.predict(df_input)[0]
-        result_label.config(text=f"Прогнозируемая задержка прибытия: {prediction:.1f} мин.")
+        result_label.config(text=f"Прогноз: {prediction:.1f} минут")
     except Exception as e:
         result_label.config(text="Ошибка прогноза")
-        print(e)
+        print("Ошибка:", e)
 
-ttk.Button(frame, text="Предсказать задержку", command=predict_delay).grid(row=row + 1, column=0, columnspan=2)
+ttk.Button(right_frame, text="Предсказать", command=predict_manual).pack(pady=5)
 
 root.mainloop()
