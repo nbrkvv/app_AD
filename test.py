@@ -103,43 +103,56 @@ agg_combo = ttk.Combobox(frame, values=list(agg_funcs.keys()))
 agg_combo.set("Среднее")
 agg_combo.grid(row=5, column=1, sticky=tk.EW)
 
-# --- График ---
-fig, ax = plt.subplots(figsize=(6, 4))
-canvas = FigureCanvasTkAgg(fig, master=root)
-canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+# Контейнер для графиков с увеличенной рабочей областью
+graph_container = tk.Canvas(root, height=800, width=1200)
+graph_container.pack(fill=tk.BOTH, expand=True)
 
-# --- Построение графика ---
+graphs_frame = ttk.Frame(graph_container)
+graph_container.create_window((0, 0), window=graphs_frame, anchor="nw")
+
+# Счётчик графиков
+graph_counter = {"count": 0}  # обёртка для изменения внутри функции
+
 def draw_plot():
     try:
         start = pd.to_datetime(start_entry.get())
         end = pd.to_datetime(end_entry.get())
         if start > end:
-            raise ValueError("Начальная дата позже конечной")
+            raise ValueError("Неверный диапазон дат")
 
         data = df[(df["FL_DATE"] >= start) & (df["FL_DATE"] <= end)]
         if data.empty:
-            messagebox.showinfo("Нет данных", "В выбранном периоде нет данных")
+            messagebox.showinfo("Нет данных", "Нет данных в этом диапазоне")
             return
 
         x = x_combo.get()
         y = y_combo.get()
-        plot = plot_combo.get()
         agg = agg_funcs[agg_combo.get()]
+        plot = plot_combo.get()
 
-        # Если ось X — дата, агрегируем
         if x == "FL_DATE":
             data = data.groupby("FL_DATE")[y].agg(agg).reset_index()
 
-        ax.clear()
+        fig, ax = plt.subplots(figsize=(5, 3))
         if plot in ["lineplot", "barplot", "scatter"]:
             getattr(sns, plot)(data=data, x=x, y=y, ax=ax)
-        else:  # histplot, boxplot — только по Y
+        else:
             getattr(sns, plot)(data=data, x=y, ax=ax)
+        ax.set_title(f"{plot} по {x} и {y}")
 
-        ax.set_title(f"{plot} по {x} и {y} ({agg_combo.get().lower()})")
+        canvas = FigureCanvasTkAgg(fig, master=graphs_frame)
+        canvas_widget = canvas.get_tk_widget()
+
+        # Расчёт позиции (по 2 графика в строку)
+        row = graph_counter["count"] // 2
+        col = graph_counter["count"] % 2
+        canvas_widget.grid(row=row, column=col, padx=10, pady=10)
+
         canvas.draw()
-    except Exception as err:
-        messagebox.showerror("Ошибка построения", str(err))
+        graph_counter["count"] += 1
+
+    except Exception as e:
+        messagebox.showerror("Ошибка построения", str(e))
 
 ttk.Button(frame, text="Построить график", command=draw_plot).grid(row=6, column=0, columnspan=2, pady=10)
 
