@@ -71,7 +71,7 @@ right_frame.pack(side=tk.RIGHT, fill=tk.Y)
 
 # ==== Левая панель: графики ====
 plot_types = ["lineplot", "barplot", "boxplot", "histplot"]
-agg_funcs = {"Среднее": "mean", "Максимум": "max", "Минимум": "min"}
+agg_funcs = {"Среднее": "mean", "Максимум": "max", "Минимум": "min", "Счет": "count"}
 
 top_controls = tk.Frame(right_frame)
 top_controls.pack(pady=10)
@@ -137,7 +137,7 @@ def draw_plot():
         if x == "FL_DATE":
             data = data.groupby("FL_DATE")[y].agg(agg).reset_index()
 
-        # ✅ создаём новый график и размещаем в сетке
+        # создаём новый график и размещаем в сетке
         fig, ax = plt.subplots(figsize=(5.5, 3.5))
         if plot in ["lineplot", "barplot", "scatter"]:
             getattr(sns, plot)(data=data, x=x, y=y, ax=ax)
